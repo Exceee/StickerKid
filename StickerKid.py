@@ -12,7 +12,7 @@ from telepot.loop import MessageLoop
 from telepot.delegate import pave_event_space, per_inline_from_id, per_chat_id, create_open
 from telepot.namedtuple import InlineQueryResultCachedSticker, InlineQueryResultArticle, InputTextMessageContent
 
-import configmy
+import config
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -215,7 +215,7 @@ class MessageCounter(telepot.helper.ChatHandler):
                      self.temp_sticker,))
                 conn.commit()
                 conn.close()
-                self.sender.sendMessage('Done. Now you can use @{:s} to find the sticker.'.format(configmy.botname))
+                self.sender.sendMessage('Done. Now you can use @{:s} to find the sticker.'.format(config.botname))
                 self._count = 0
 
 
@@ -228,7 +228,7 @@ if __name__ == '__main__':
         conn.commit()
         conn.close()
 
-    bot = telepot.DelegatorBot(configmy.TOKEN, [
+    bot = telepot.DelegatorBot(config.TOKEN, [
         # Inline query handler
         pave_event_space()(
             per_inline_from_id(), create_open, QueryCounter, timeout=10),
@@ -236,7 +236,7 @@ if __name__ == '__main__':
         pave_event_space()(
                 per_chat_id(), create_open, MessageCounter, timeout=300)])
     MessageLoop(bot).run_as_thread()
-    print('I am {:s}, nice to meet you'.format(configmy.botname))
+    print('I am {:s}, nice to meet you'.format(config.botname))
 
     while 1:
         time.sleep(10)
