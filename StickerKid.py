@@ -121,10 +121,10 @@ class MessageCounter(telepot.helper.ChatHandler):
                     conn.close()
 
                     # Send a list of stickers from db
-                    msgsent = bot.sendMessage(chat_id, 'You have {:d} stickers.'
+                    msgsent = self.sender.sendMessage('You have {:d} stickers.'
                                               .format(len(result)))
                     for i, item in enumerate(result):
-                        msgsent = bot.sendMessage(chat_id, '{:d}: {:s}'.format(i + 1, item['name']))
+                        msgsent = self.sender.sendMessage('{:d}: {:s}'.format(i + 1, item['name']))
                         bot.sendSticker(chat_id, item['sticker'])
                     return msgsent
                 return handler
