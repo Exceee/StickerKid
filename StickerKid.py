@@ -136,14 +136,14 @@ class MessageCounter(telepot.helper.ChatHandler):
                     return msgsent
                 return handler
 
-            def contains_word_on_the_beginning(text):
+            def contains_word_on_the_beginning(word):
                 def tester(msg):
                     content_type, chat_type, chat_id = telepot.glance(msg)
                     if content_type == 'text':
-                        for word in text:
-                            if (re.compile(r'\b{:s}'.format(word), re.IGNORECASE)
-                                           .search(msg['text'])):
-                                return True
+                        if (re.compile(r'\b{:s}'.format(word), re.IGNORECASE)
+                                       .search(msg['text'])):
+                            print('WOAH')
+                            return True
                     return False
                 return tester
 
@@ -182,9 +182,9 @@ class MessageCounter(telepot.helper.ChatHandler):
                 return handler
 
             handlers = [
-                [text_match('/list'), send_list_of_stickers('')],
-                [text_match('/add'), send_text_add_sticker('Send a sticker.')],
-                [contains_word_on_the_beginning('/remove'), remove_sticker('')],
+                [text_match(r'/list'), send_list_of_stickers('')],
+                [text_match(r'/add'), send_text_add_sticker('Send a sticker.')],
+                [contains_word_on_the_beginning(r'/remove'), remove_sticker('')],
             ]
 
             for tester, handler in handlers:
