@@ -18,12 +18,17 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 
+def connect_to_db(db_filename):
+    conn = sqlite3.connect(db_filename)
+    c = conn.cursor()
+    return conn, c
+
+
 # Inline query handlers
 
 def find_sticker_in_db(user_id, sticker):
     # Connect to db
-    conn = sqlite3.connect('StickerKid.db')
-    c = conn.cursor()
+    conn, c = connect_to_db(config.db_filename)
 
     # Create the result - list of dicts with matched stickers
     result = list()
@@ -51,7 +56,9 @@ class QueryCounter(telepot.helper.InlineUserHandler, telepot.helper.AnswererMixi
 
     def on_inline_query(self, msg):
         def compute():
-            query_id, from_id, query_string = telepot.glance(msg, flavor='inline_query')
+            query_id, from_id, query_string = telepot.glance(
+                msg, flavor='inline_query'
+            )
             helpful_log = self.id, ':', 'Inline Query:', query_id, from_id, query_string
             logger.info(helpful_log)
 
@@ -78,8 +85,11 @@ class QueryCounter(telepot.helper.InlineUserHandler, telepot.helper.AnswererMixi
         self.answerer.answer(msg, compute)
 
     def on_chosen_inline_result(self, msg):
-        result_id, from_id, query_string = telepot.glance(msg, flavor='chosen_inline_result')
-        logger.info(self.id, ':', 'Chosen Inline Result:', result_id, from_id, query_string)
+        result_id, from_id, query_string = telepot.glance(
+            msg, flavor='chosen_inline_result'
+        )
+        logger.info(self.id, ':', 'Chosen Inline Result:',
+                    result_id, from_id, query_string)
 
 
 # Private messages handlers
@@ -107,8 +117,7 @@ class MessageCounter(telepot.helper.ChatHandler):
                 def handler(msg):
                     content_type, chat_type, chat_id = telepot.glance(msg)
 
-                    conn = sqlite3.connect('StickerKid.db')
-                    c = conn.cursor()
+                    conn, c = connect_to_db(config.db_filename)
 
                     result = list()
                     for row in c.execute(
@@ -121,10 +130,12 @@ class MessageCounter(telepot.helper.ChatHandler):
                     conn.close()
 
                     # Send a list of stickers from db
-                    msgsent = self.sender.sendMessage('You have {:d} stickers.'
-                                              .format(len(result)))
+                    msgsent = self.sender.sendMessage(
+                        'You have {:d} stickers.'.format(len(result)))
                     for i, item in enumerate(result):
-                        msgsent = self.sender.sendMessage('{:d}: {:s}'.format(i + 1, item['name']))
+                        msgsent = self.sender.sendMessage(
+                            '{:d}: {:s}'.format(i + 1, item['name'])
+                        )
                         bot.sendSticker(chat_id, item['sticker'])
                     return msgsent
                 return handler
@@ -143,7 +154,7 @@ class MessageCounter(telepot.helper.ChatHandler):
                         if (re.compile(r'\b{:s}'.format(word), re.IGNORECASE)
                                        .search(msg['text'])):
                             print('WOAH')
-                            return True
+                            return
                     return False
                 return tester
 
@@ -157,8 +168,7 @@ class MessageCounter(telepot.helper.ChatHandler):
 
                     if regex_result:
                         sticker_id = int(regex_result[1])
-                        conn = sqlite3.connect('StickerKid.db')
-                        c = conn.cursor()
+                        conn, c = connect_to_db(config.db_filename)
 
                         result = list()
                         for row in c.execute("SELECT * from stickers WHERE user=? ORDER BY id",
@@ -172,7 +182,8 @@ class MessageCounter(telepot.helper.ChatHandler):
                                    sticker_id,))
                         data = c.fetchone()[0]
                         if not data == 0:
-                            c.execute("DELETE FROM stickers WHERE id=?", (result[sticker_id - 1]['id'],))
+                            c.execute("DELETE FROM stickers WHERE id=?",
+                                      (result[sticker_id - 1]['id'],))
                             conn.commit()
                             msgsent = self.sender.sendMessage('Sticker removed.')
                         else:
@@ -182,9 +193,9 @@ class MessageCounter(telepot.helper.ChatHandler):
                 return handler
 
             handlers = [
-                [text_match(r'/list'), send_list_of_stickers('')],
+                [text_match(r'/list'), send_list_of_stickers(None)],
                 [text_match(r'/add'), send_text_add_sticker('Send a sticker.')],
-                [contains_word_on_the_beginning(r'/remove'), remove_sticker('')],
+                [contains_word_on_the_beginning(r'/remove'), remove_sticker(None)],
             ]
 
             for tester, handler in handlers:
@@ -201,8 +212,8 @@ class MessageCounter(telepot.helper.ChatHandler):
 
             elif self._count == 2 and content_type == 'text':
 
-                conn = sqlite3.connect('StickerKid.db')
-                c = conn.cursor()
+                conn, c = connect_to_db(config.db_filename)
+
                 max_sticker_id = 0
                 for row in c.execute("SELECT * from stickers WHERE user=?",
                                      (chat_id,)):
@@ -215,14 +226,17 @@ class MessageCounter(telepot.helper.ChatHandler):
                      self.temp_sticker,))
                 conn.commit()
                 conn.close()
-                self.sender.sendMessage('Done. Now you can use @{:s} to find the sticker.'.format(config.botname))
+                self.sender.sendMessage(
+                    'Done. Now you can use @{:s} to find the sticker.'
+                    .format(config.botname)
+                )
                 self._count = 0
 
 
 if __name__ == '__main__':
-    if not os.path.exists('StickerKid.db'):
-        conn = sqlite3.connect('StickerKid.db')
-        c = conn.cursor()
+    if not os.path.exists(config.db_filename):
+        conn, c = connect_to_db(config.db_filename)
+
         c.execute('''CREATE TABLE stickers
                      (user integer, id integer, name text, sticker text)''')
         conn.commit()
