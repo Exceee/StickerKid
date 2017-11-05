@@ -9,8 +9,10 @@ import time
 from fuzzywuzzy import fuzz
 import telepot
 from telepot.loop import MessageLoop
-from telepot.delegate import pave_event_space, per_inline_from_id, per_chat_id, create_open
-from telepot.namedtuple import InlineQueryResultCachedSticker, InlineQueryResultArticle, InputTextMessageContent
+from telepot.delegate import pave_event_space, per_inline_from_id,\
+    per_chat_id, create_open
+from telepot.namedtuple import InlineQueryResultCachedSticker, \
+    InlineQueryResultArticle, InputTextMessageContent
 
 import config
 
@@ -59,18 +61,26 @@ class QueryCounter(telepot.helper.InlineUserHandler, telepot.helper.AnswererMixi
             query_id, from_id, query_string = telepot.glance(
                 msg, flavor='inline_query'
             )
-            helpful_log = self.id, ':', 'Inline Query:', query_id, from_id, query_string
-            logger.info(helpful_log)
+            logger.info(
+                'Inline Query from {:d}: {:s}: {:s}'
+                .format(self.id,
+                        query_id,
+                        query_string)
+            )
 
             self._count += 1
+
             search_result = find_sticker_in_db(from_id, query_string)
+
             if search_result:
                 articles = list()
                 for item in search_result:
-                    articles.append(InlineQueryResultCachedSticker(
+                    articles.append(
+                        InlineQueryResultCachedSticker(
                                  id=str(item['id']),
                                  sticker_file_id=item['sticker'],
-                            ))
+                        )
+                    )
             else:
                 # If there is no result, send the text message
                 articles = [InlineQueryResultArticle(
@@ -88,8 +98,12 @@ class QueryCounter(telepot.helper.InlineUserHandler, telepot.helper.AnswererMixi
         result_id, from_id, query_string = telepot.glance(
             msg, flavor='chosen_inline_result'
         )
-        logger.info(self.id, ':', 'Chosen Inline Result:',
-                    result_id, from_id, query_string)
+        logger.info(self.id,
+                    ':',
+                    'Chosen Inline Result:',
+                    result_id,
+                    from_id,
+                    query_string)
 
 
 # Private messages handlers
@@ -113,26 +127,32 @@ class MessageCounter(telepot.helper.ChatHandler):
                     return False
                 return tester
 
+            def get_list_of_stickers_from_db(user_id):
+                conn, c = connect_to_db(config.db_filename)
+                result = list()
+                for row in c.execute(
+                        "SELECT * from stickers WHERE user=? ORDER BY id",
+                        (user_id,)
+                ):
+                    result.append({
+                        'id': row[1],
+                        'name': row[2],
+                        'sticker': row[3],
+                    })
+                conn.close()
+                return result
+
             def send_list_of_stickers(text):
                 def handler(msg):
                     content_type, chat_type, chat_id = telepot.glance(msg)
 
-                    conn, c = connect_to_db(config.db_filename)
-
-                    result = list()
-                    for row in c.execute(
-                            "SELECT * from stickers WHERE user=? ORDER BY id",
-                            (chat_id,)):
-                        result.append({'id': row[1],
-                                       'name': row[2],
-                                       'sticker': row[3]})
-
-                    conn.close()
+                    list_of_stickers = get_list_of_stickers_from_db(chat_id)
 
                     # Send a list of stickers from db
                     msgsent = self.sender.sendMessage(
-                        'You have {:d} stickers.'.format(len(result)))
-                    for i, item in enumerate(result):
+                        'You have {:d} stickers.'.format(len(list_of_stickers))
+                    )
+                    for i, item in enumerate(list_of_stickers):
                         msgsent = self.sender.sendMessage(
                             '{:d}: {:s}'.format(i + 1, item['name'])
                         )
@@ -147,61 +167,54 @@ class MessageCounter(telepot.helper.ChatHandler):
                     return msgsent
                 return handler
 
-            def contains_word_on_the_beginning(word):
+            def contains_word(word):
                 def tester(msg):
                     content_type, chat_type, chat_id = telepot.glance(msg)
                     if content_type == 'text':
-                        if (re.compile(r'\b{:s}'.format(word), re.IGNORECASE)
-                                       .search(msg['text'])):
-                            print('WOAH')
-                            return
+                        if (re.compile(r'{:s}'.format(word), re.IGNORECASE)
+                                    .search(msg['text'])):
+                            return True
                     return False
                 return tester
 
             def remove_sticker(text):
                 def handler(msg):
                     content_type, chat_type, chat_id = telepot.glance(msg)
-
-                    removeRegex = re.compile(
-                        r'/remove (\d)*')
+                    removeRegex = re.compile(r'/remove (\d+)')
                     regex_result = removeRegex.search(msg['text'])
 
                     if regex_result:
-                        sticker_id = int(regex_result[1])
-                        conn, c = connect_to_db(config.db_filename)
+                        sticker_number_from_user = int(regex_result[1])
 
-                        result = list()
-                        for row in c.execute("SELECT * from stickers WHERE user=? ORDER BY id",
-                                (chat_id,)):
-                            result.append({'id': row[1],
-                                           'name': row[2],
-                                           'sticker': row[3]})
+                        list_of_stickers = get_list_of_stickers_from_db(chat_id)
 
-                        c.execute("SELECT count(*) FROM stickers WHERE user = ? AND id = ?",
-                                  (msg['from']['id'],
-                                   sticker_id,))
-                        data = c.fetchone()[0]
-                        if not data == 0:
-                            c.execute("DELETE FROM stickers WHERE id=?",
-                                      (result[sticker_id - 1]['id'],))
-                            conn.commit()
-                            msgsent = self.sender.sendMessage('Sticker removed.')
+                        for i, item in enumerate(list_of_stickers):  # [:10]
+                            if i + 1 == sticker_number_from_user:
+                                conn, c = connect_to_db(config.db_filename)
+                                c.execute(
+                                    "DELETE FROM stickers WHERE user = ? AND id = ?",
+                                    (msg['from']['id'],
+                                     item['id'],))
+                                conn.commit()
+                                conn.close()
+                                msgsent = self.sender.sendMessage(
+                                          'Sticker removed.')
+                                break
                         else:
                             msgsent = self.sender.sendMessage('Sticker not found.')
-                        conn.close()
                     return msgsent
                 return handler
 
             handlers = [
                 [text_match(r'/list'), send_list_of_stickers(None)],
                 [text_match(r'/add'), send_text_add_sticker('Send a sticker.')],
-                [contains_word_on_the_beginning(r'/remove'), remove_sticker(None)],
+                [contains_word(r'/remove'), remove_sticker(None)],
             ]
 
             for tester, handler in handlers:
                 if tester(msg):
                     self._count = 0
-                    msgsent = handler(msg)
+                    handler(msg)
                     break
 
             if self._count == 1 and content_type == 'sticker':
@@ -236,7 +249,6 @@ class MessageCounter(telepot.helper.ChatHandler):
 if __name__ == '__main__':
     if not os.path.exists(config.db_filename):
         conn, c = connect_to_db(config.db_filename)
-
         c.execute('''CREATE TABLE stickers
                      (user integer, id integer, name text, sticker text)''')
         conn.commit()
