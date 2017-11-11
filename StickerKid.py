@@ -28,35 +28,36 @@ def connect_to_db(db_filename):
 
 # Inline query handlers
 
-def find_sticker_in_db(user_id, sticker):
-    # Connect to db
-    conn, c = connect_to_db(config.db_filename)
-
-    # Create the result - list of dicts with matched stickers
-    result = list()
-    for row in c.execute("SELECT * from stickers WHERE user=?", (user_id,)):
-        ratio = fuzz.partial_ratio(sticker, row[2])
-        if ratio > 90:
-            result.append({'ratio': ratio,
-                           'id': row[1],
-                           'name': row[2],
-                           'sticker': row[3]})
-    # Close the connection
-    conn.close()
-
-    # Return the results
-    if result:
-        return result
-    else:
-        return None
-
-
 class QueryCounter(telepot.helper.InlineUserHandler, telepot.helper.AnswererMixin):
     def __init__(self, *args, **kwargs):
         super(QueryCounter, self).__init__(*args, **kwargs)
         self._count = 0
 
     def on_inline_query(self, msg):
+        def find_sticker_in_db(user_id, sticker):
+            # Connect to db
+            conn, c = connect_to_db(config.db_filename)
+
+            # Create the result - list of dicts with matched stickers
+            result = list()
+            for row in c.execute("SELECT * from stickers WHERE user=?",
+                                 (user_id,)):
+                ratio = fuzz.partial_ratio(sticker, row[2])
+                if ratio > 90:
+                    result.append({'ratio': ratio,
+                                   'id': row[1],
+                                   'name': row[2],
+                                   'sticker': row[3]})
+
+            # Close the connection
+            conn.close()
+
+            # Return the results
+            if result:
+                return result
+            else:
+                return None
+
         def compute():
             query_id, from_id, query_string = telepot.glance(
                 msg, flavor='inline_query'
@@ -93,17 +94,6 @@ class QueryCounter(telepot.helper.InlineUserHandler, telepot.helper.AnswererMixi
             return articles
 
         self.answerer.answer(msg, compute)
-
-    def on_chosen_inline_result(self, msg):
-        result_id, from_id, query_string = telepot.glance(
-            msg, flavor='chosen_inline_result'
-        )
-        logger.info(self.id,
-                    ':',
-                    'Chosen Inline Result:',
-                    result_id,
-                    from_id,
-                    query_string)
 
 
 # Private messages handlers
@@ -160,10 +150,58 @@ class MessageCounter(telepot.helper.ChatHandler):
                     return msgsent
                 return handler
 
-            def send_text_add_sticker(text):
+            def add_sticker_handler_1(text):
                 def handler(msg):
                     msgsent = self.sender.sendMessage(text)
-                    self._count = 1
+                    return msgsent
+                return handler
+
+            def add_sticker_tester_2(text):
+                def tester(msg):
+                    if self._count == 1 and content_type == 'sticker':
+                        return True
+                    else:
+                        return False
+                return tester
+
+            def add_sticker_handler_2(text):
+                def handler(msg):
+                    msgsent = self.sender.sendMessage('Write a description.')
+                    self.temp_sticker = msg['sticker']['file_id']
+                    self._count = 2
+                    return msgsent
+                return handler
+
+            def add_sticker_tester_3(text):
+                def tester(msg):
+                    if self._count == 2 and content_type == 'text':
+                        return True
+                    else:
+                        return False
+                return tester
+
+            def add_sticker_handler_3(text):
+                def handler(msg):
+                    conn, c = connect_to_db(config.db_filename)
+
+                    max_sticker_id = 0
+                    for row in c.execute("SELECT * from stickers WHERE user=?",
+                                         (chat_id,)):
+                        max_sticker_id = max(int(row[1]), max_sticker_id)
+                    c.execute(
+                        "INSERT INTO stickers VALUES (?,?,?,?)",
+                        (msg['from']['id'],
+                         max_sticker_id + 1,
+                         msg['text'],
+                         self.temp_sticker,)
+                    )
+                    conn.commit()
+                    conn.close()
+                    msgsent = self.sender.sendMessage(
+                        'Done. Now you can use @{:s} to find the sticker.'
+                        .format(config.botname)
+                    )
+                    self._count = 0
                     return msgsent
                 return handler
 
@@ -207,43 +245,16 @@ class MessageCounter(telepot.helper.ChatHandler):
 
             handlers = [
                 [text_match(r'/list'), send_list_of_stickers(None)],
-                [text_match(r'/add'), send_text_add_sticker('Send a sticker.')],
+                [text_match(r'/add'), add_sticker_handler_1('Send a sticker.')],
                 [contains_word(r'/remove'), remove_sticker(None)],
+                [add_sticker_tester_2(None), add_sticker_handler_2(None)],
+                [add_sticker_tester_3(None), add_sticker_handler_3(None)],
             ]
 
             for tester, handler in handlers:
                 if tester(msg):
-                    self._count = 0
                     handler(msg)
                     break
-
-            if self._count == 1 and content_type == 'sticker':
-
-                self.sender.sendMessage('Write a description.')
-                self.temp_sticker = msg['sticker']['file_id']
-                self._count = 2
-
-            elif self._count == 2 and content_type == 'text':
-
-                conn, c = connect_to_db(config.db_filename)
-
-                max_sticker_id = 0
-                for row in c.execute("SELECT * from stickers WHERE user=?",
-                                     (chat_id,)):
-                    max_sticker_id = max(int(row[1]), max_sticker_id)
-                c.execute(
-                    "INSERT INTO stickers VALUES (?,?,?,?)",
-                    (msg['from']['id'],
-                     max_sticker_id + 1,
-                     msg['text'],
-                     self.temp_sticker,))
-                conn.commit()
-                conn.close()
-                self.sender.sendMessage(
-                    'Done. Now you can use @{:s} to find the sticker.'
-                    .format(config.botname)
-                )
-                self._count = 0
 
 
 if __name__ == '__main__':
@@ -260,7 +271,7 @@ if __name__ == '__main__':
             per_inline_from_id(), create_open, QueryCounter, timeout=10),
         # Private messages handler
         pave_event_space()(
-                per_chat_id(), create_open, MessageCounter, timeout=300)])
+            per_chat_id(), create_open, MessageCounter, timeout=300)])
     MessageLoop(bot).run_as_thread()
     print('I am {:s}, nice to meet you'.format(config.botname))
 
